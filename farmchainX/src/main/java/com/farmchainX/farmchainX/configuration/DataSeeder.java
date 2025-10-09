@@ -24,6 +24,7 @@ public class DataSeeder implements CommandLineRunner {
 	        				 "ROLE_ADMIN"
 	        };
 	        for(String roleName:roles) {
+	        	//check whether role present in table or not before adding to the role table
 	        	if(!roleRepository.existsByRoleName(roleName)) {
 	        	Role role=new Role();
 	        	role.setRoleName(roleName);
