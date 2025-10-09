@@ -14,7 +14,7 @@ public class SecurityConfig {
 		public PasswordEncoder passwordEncoder() {
 			return new BCryptPasswordEncoder();
 		}
-		
+		//by default security is given for all endpoints to over come we use security filter chain
 		@Bean
 		public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception{
 			http
