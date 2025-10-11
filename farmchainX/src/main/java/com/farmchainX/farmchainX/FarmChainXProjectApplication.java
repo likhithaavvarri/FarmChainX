@@ -10,4 +10,5 @@ public class FarmChainXProjectApplication {
 		SpringApplication.run(FarmChainXProjectApplication.class, args);
 	}
 
+
 }
