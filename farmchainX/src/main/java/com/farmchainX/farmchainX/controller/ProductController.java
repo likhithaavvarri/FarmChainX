@@ -17,7 +17,7 @@ import com.farmchainX.farmchainX.service.ProductService;
 @RestController
 @RequestMapping("/api/products")
 public class ProductController {
-
+//
     private final ProductService productService;
     private final UserRepository userRepository;
 
