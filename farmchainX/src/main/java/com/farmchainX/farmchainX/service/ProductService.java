@@ -1,18 +1,24 @@
 package com.farmchainX.farmchainX.service;
 
+import java.time.LocalDate;
 import java.util.List;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional; // ✅ use Spring’s version
 import com.farmchainX.farmchainX.model.Product;
+import com.farmchainX.farmchainX.model.User;
 import com.farmchainX.farmchainX.repository.ProductRepository;
+import com.farmchainX.farmchainX.repository.UserRepository;
 
 @Service
 public class ProductService {
 
     private final ProductRepository productRepository;
+    private final UserRepository userRepository;
+ 
 
-    public ProductService(ProductRepository productRepository) {
+    public ProductService(ProductRepository productRepository, UserRepository userRepository) {
         this.productRepository = productRepository;
+        this.userRepository = userRepository;
     }
 
     @Transactional
@@ -24,11 +30,21 @@ public class ProductService {
     }
 
     public List<Product> getProductsByFarmerId(Long farmerId) {
-        return productRepository.findByFarmerId(farmerId);
+    	User farmer = userRepository.findById(farmerId)
+    			.orElseThrow(()->new RuntimeException("Farmer Not Found"));
+    	return productRepository.findByFarmerId(farmerId);
+        
     }
 
     public Product getProductById(Long productId) {
         return productRepository.findById(productId)
                 .orElseThrow(() -> new RuntimeException("Product not found"));
     }
+    
+    public List<Product> filterProducts(String cropName, LocalDate endDate) {
+        return productRepository.filterProducts(cropName, endDate);
+    }
+
+    
+    
 }
