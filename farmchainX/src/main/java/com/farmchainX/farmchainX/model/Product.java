@@ -19,6 +19,7 @@ public class Product {
     private String imagePath;
     private String qualityGrade;
     private Double confidenceScore;
+    private String qrCodePath;
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "farmer_id")
@@ -55,4 +56,10 @@ public class Product {
 
     public User getFarmer() { return farmer; }
     public void setFarmer(User farmer) { this.farmer = farmer; }
+    public String getQrCodePath() {
+		return qrCodePath;
+	}
+	public void setQrCodePath(String qrCodePath) {
+		this.qrCodePath = qrCodePath;
+	}
 }
