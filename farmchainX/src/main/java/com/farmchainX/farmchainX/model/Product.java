@@ -21,7 +21,8 @@ public class Product {
     private Double confidenceScore;
     private String qrCodePath;
 
-    @ManyToOne(fetch = FetchType.LAZY)
+    
+	@ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "farmer_id")
     private User farmer;
 
@@ -56,6 +57,7 @@ public class Product {
 
     public User getFarmer() { return farmer; }
     public void setFarmer(User farmer) { this.farmer = farmer; }
+    
     public String getQrCodePath() {
 		return qrCodePath;
 	}
