@@ -11,14 +11,14 @@ public class SupplyChainLog {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    private Long productId;          // Product being tracked
-    private Long fromUserId;         // Who handed over the product
-    private Long toUserId;           // Who received the product
-    private LocalDateTime timestamp; // When the handover occurred
-    private String location;         // Place of handover (village, warehouse, etc.)
-    private String notes;            // Optional extra details
-    private String prevHash;         // Hash of previous block
-    private String hash;             // Hash of this block for verification
+    private Long productId;          
+    private Long fromUserId;         
+    private Long toUserId;           
+    private LocalDateTime timestamp; 
+    private String location;         
+    private String notes;            
+    private String prevHash;         
+    private String hash;             
 
   
     public SupplyChainLog() {
