@@ -21,7 +21,7 @@ public class AiService {
 	
 	private final RestTemplate restTemplate = new RestTemplate();
 	
-	private final String url = "http://localhost:5000/predict";
+	private final String url = "http://localhost:8000/predict";
 	
 	
 	public Map<String, Object> predictQuality(String imagePath){
