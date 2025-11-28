@@ -42,14 +42,16 @@ public class AuthService {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Email already exists!");
         }
 
-        // ✅ Only allow 4 roles during register
-        if (!Set.of("CONSUMER", "FARMER", "DISTRIBUTER", "RETAILER")
-                .contains(request.getRole().toUpperCase())) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "You cannot register as ADMIN!");
+        String roleInput = request.getRole().trim().toUpperCase();
+
+        if (!Set.of("CONSUMER", "FARMER", "DISTRIBUTOR", "RETAILER")
+                .contains(roleInput)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Only Consumer, Farmer, Distributor, Retailer allowed");
         }
 
-        Role role = roleRepository.findByName("ROLE_" + request.getRole().toUpperCase())
-                .orElseThrow(() -> new RuntimeException("Role not found"));
+        Role role = roleRepository.findByName("ROLE_" + roleInput)
+                .orElseThrow(() -> new RuntimeException("Role not found in DB"));
 
         User user = new User();
         user.setName(request.getName());
@@ -73,18 +75,23 @@ public class AuthService {
             throw new RuntimeException("Invalid password!");
         }
 
-        String role = user.getRoles()
+        // ✅ Check if user has admin role
+        boolean isAdmin = user.getRoles()
                 .stream()
-                .map(Role::getName)
-                .findFirst()
-                .orElse("ROLE_CONSUMER");
+                .anyMatch(r -> r.getName().equals("ROLE_ADMIN"));
 
-        // ✅ If user has ROLE_ADMIN because he was approved → he can login
-        String token = jwtUtil.generateToken(login.getEmail(), role, user.getId());
+        // ✅ Primary role: ADMIN if present, else first assigned role
+        String primaryRole = isAdmin
+                ? "ROLE_ADMIN"
+                : user.getRoles()
+                    .stream()
+                    .map(Role::getName)
+                    .findFirst()
+                    .orElse("ROLE_CONSUMER");
 
-        return new AuthResponse(token, role, login.getEmail());
+        // ✅ Generate token
+        String token = jwtUtil.generateToken(user.getEmail(), primaryRole, user.getId());
+
+        return new AuthResponse(token, primaryRole, user.getEmail());
     }
-
-
-
 }

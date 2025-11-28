@@ -1,154 +1,370 @@
 package com.farmchainX.farmchainX.controller;
 
-import java.io.File;
 import java.io.IOException;
 import java.security.Principal;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
-import org.springframework.format.annotation.DateTimeFormat;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
 import com.farmchainX.farmchainX.model.Product;
+import com.farmchainX.farmchainX.model.SupplyChainLog;
 import com.farmchainX.farmchainX.model.User;
+import com.farmchainX.farmchainX.repository.FeedbackRepository;
+import com.farmchainX.farmchainX.repository.ProductRepository;
+import com.farmchainX.farmchainX.repository.SupplyChainLogRepository;
 import com.farmchainX.farmchainX.repository.UserRepository;
 import com.farmchainX.farmchainX.service.ProductService;
+import com.farmchainX.farmchainX.util.HashUtil;
 
 @RestController
-@RequestMapping("/api/products")
+@RequestMapping("/api")
 public class ProductController {
 
+    private final ProductRepository productRepository;
     private final ProductService productService;
     private final UserRepository userRepository;
+    private final SupplyChainLogRepository supplyChainLogRepository;
+    private final FeedbackRepository feedbackRepository;
 
-    public ProductController(ProductService productService, UserRepository userRepository) {
+    public ProductController(ProductService productService,
+                             UserRepository userRepository,
+                             ProductRepository productRepository,
+                             SupplyChainLogRepository supplyChainLogRepository,
+                             FeedbackRepository feedbackRepository) {
         this.productService = productService;
         this.userRepository = userRepository;
+        this.productRepository = productRepository;
+        this.supplyChainLogRepository = supplyChainLogRepository;
+        this.feedbackRepository = feedbackRepository;
     }
 
-    // 🧑‍🌾 Only Farmers can upload products
+    @PostMapping("/products/upload")
     @PreAuthorize("hasRole('FARMER')")
-    @PostMapping("/upload")
-    public Product uploadProduct(
+    public ResponseEntity<?> uploadProduct(
             @RequestParam String cropName,
             @RequestParam String soilType,
             @RequestParam String pesticides,
-            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate harvestDate,
+            @RequestParam String harvestDate,
             @RequestParam String gpsLocation,
             @RequestParam("image") MultipartFile imageFile,
-            Principal principal
-    ) throws IOException {
+            Principal principal) throws IOException {
 
-        System.out.println("🔥 [Controller] Entered /upload endpoint");
+        try {
+            if (principal == null) return ResponseEntity.status(401).body(Map.of("error", "Authentication required"));
+            if (imageFile == null || imageFile.isEmpty()) return ResponseEntity.badRequest().body(Map.of("error", "Image is required"));
 
-        if (imageFile.isEmpty()) {
-            throw new RuntimeException("Image is required");
+            String email = principal.getName();
+            User farmer = userRepository.findByEmail(email)
+                    .orElseThrow(() -> new RuntimeException("Farmer not found"));
+
+            com.cloudinary.Cloudinary cloudinary = new com.cloudinary.Cloudinary(
+                "cloudinary://576328924368997:w91CTYnN6GDpASZhjff1oyeKIwk@dui3x1lur"   //Please change the infos
+            );
+            java.util.Map uploadResult = cloudinary.uploader().upload(
+                imageFile.getBytes(),
+                com.cloudinary.utils.ObjectUtils.asMap("folder", "farmchainx/products")
+            );
+            String imagePath = uploadResult.get("secure_url").toString();
+
+            LocalDate parsedDate = null;
+            if (harvestDate != null && !harvestDate.isBlank()) {
+                try {
+                    parsedDate = LocalDate.parse(harvestDate, DateTimeFormatter.ISO_DATE);
+                } catch (DateTimeParseException ex) {
+                    String cleaned = harvestDate.replace(" ", "").replace("−", "-").replace("—", "-").replace("/", "-");
+                    parsedDate = LocalDate.parse(cleaned, DateTimeFormatter.ofPattern("dd-MM-yyyy"));
+                }
+            }
+
+            Product product = new Product();
+            product.setCropName(cropName);
+            product.setSoilType(soilType);
+            product.setPesticides(pesticides);
+            product.setHarvestDate(parsedDate);
+            product.setGpsLocation(gpsLocation);
+            product.setImagePath(imagePath);
+            product.setFarmer(farmer);
+            product.setQualityGrade(null);
+            product.setConfidenceScore(null);
+
+            Product saved = productService.saveProduct(product);
+            saved.ensurePublicUuid();
+            productRepository.save(saved);
+
+            return ResponseEntity.ok(Map.of(
+                    "id", saved.getId(),
+                    "message", "Product uploaded successfully",
+                    "qualityGrade", saved.getQualityGrade(),
+                    "confidenceScore", saved.getConfidenceScore()
+            ));
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(Map.of("error", "Upload failed: " + e.getMessage()));
         }
+    }
 
-        // 🗂️ Save image to 'uploads' directory
-        String uploadDir = System.getProperty("user.dir") + File.separator + "uploads";
-        File folder = new File(uploadDir);
-        if (!folder.exists()) folder.mkdirs();
+    @PreAuthorize("hasRole('FARMER')")
+    @GetMapping("/products/my")
+    public ResponseEntity<?> getMyProducts(
+            Principal principal,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "9") int size,
+            @RequestParam(defaultValue = "id,desc") String sort) {
 
-        String imagePath = uploadDir + File.separator + System.currentTimeMillis() + "_" + imageFile.getOriginalFilename();
-        imageFile.transferTo(new File(imagePath));
+        if (principal == null) return ResponseEntity.status(401).body(Map.of("error", "Authentication required"));
 
-        // 🧩 Get currently logged-in user from JWT token
-        String email = principal.getName(); // Extracted from token
+        String email = principal.getName();
         User farmer = userRepository.findByEmail(email)
                 .orElseThrow(() -> new RuntimeException("Farmer not found"));
 
-        System.out.println("🔥 [Controller] Farmer found: " + farmer.getEmail());
+        String[] parts = sort.split(",", 2);
+        String sortProp = parts[0];
+        boolean asc = parts.length > 1 && "asc".equalsIgnoreCase(parts[1]);
 
-        Product product = new Product();
-        product.setCropName(cropName);
-        product.setSoilType(soilType);
-        product.setPesticides(pesticides);
-        product.setHarvestDate(harvestDate);
-        product.setGpsLocation(gpsLocation);
-        product.setImagePath(imagePath);
-        product.setQualityGrade("Pending");
-        product.setConfidenceScore(0.0);
-        product.setFarmer(farmer);
+        Pageable pageable = PageRequest.of(
+                page,
+                size,
+                asc ? Sort.Direction.ASC : Sort.Direction.DESC,
+                sortProp
+        );
 
-        Product saved = productService.saveProduct(product);
-
-        System.out.println("✅ [Controller] Product saved with ID: " + saved.getId());
-        return saved;
+        var pageRes = productRepository.findByFarmerId(farmer.getId(), pageable);
+        return ResponseEntity.ok(pageRes);
     }
 
-    // 👨‍🌾 FARMER or 👮‍♂️ ADMIN can generate QR
     @PreAuthorize("hasAnyRole('FARMER','ADMIN')")
-    @PostMapping("/{id}/qrcode")
-    public String generateProductQrCode(@PathVariable Long id, Principal principal) {
+    @PostMapping("/products/{id}/qrcode")
+    public ResponseEntity<?> generateProductQrCode(@PathVariable Long id, Principal principal) {
+        if (principal == null) return ResponseEntity.status(401).body(Map.of("error", "Authentication required"));
+
         String email = principal.getName();
         User currentUser = userRepository.findByEmail(email)
                 .orElseThrow(() -> new RuntimeException("User not found"));
 
         Product product = productService.getProductById(id);
-
-        boolean isFarmer = currentUser.getRoles().stream()
-                .anyMatch(role -> role.getName().equalsIgnoreCase("ROLE_FARMER"));
-
+        boolean isOwner = product.getFarmer().getId().equals(currentUser.getId());
         boolean isAdmin = currentUser.getRoles().stream()
-                .anyMatch(role -> role.getName().equalsIgnoreCase("ROLE_ADMIN"));
+                .anyMatch(r -> "ROLE_ADMIN".equalsIgnoreCase(r.getName()));
 
-        // 👨‍🌾 FARMER: can only generate QR for their own products
-        if (isFarmer && !product.getFarmer().getId().equals(currentUser.getId())) {
-            throw new RuntimeException("Access Denied: You can only generate QR for your own products");
+        if (!isOwner && !isAdmin) {
+            return ResponseEntity.status(403).body(Map.of("error", "You can only generate QR for your own products"));
         }
 
-        if (isAdmin || isFarmer) {
-            return productService.generateProductQr(id);
-        }
-
-        throw new RuntimeException("Access Denied: Unauthorized role");
+        String qrPath = productService.generateProductQr(id);
+        return ResponseEntity.ok(Map.of(
+            "message", "QR Code generated successfully",
+            "qrPath", qrPath,
+            "verifyUrl", "https://yourdomain.com/verify/" + product.getPublicUuid()
+        ));
     }
 
-    // 🌍 Public — anyone can download product QR
-    @GetMapping("/{id}/qrcode/download")
+    @GetMapping("/products/{id}/qrcode/download")
     public ResponseEntity<byte[]> downloadProductQR(@PathVariable Long id) {
-        byte[] imageBytes = productService.getProductQRImage(id);
-        return ResponseEntity.ok()
-                .header("Content-Type", "image/png")
-                .header("Content-Disposition", "attachment; filename=product_" + id + ".png")
-                .body(imageBytes);
+        try {
+            byte[] imageBytes = productService.getProductQRImage(id);
+            return ResponseEntity.ok()
+                    .header("Content-Type", "image/png")
+                    .header("Content-Disposition", "attachment; filename=product_" + id + ".png")
+                    .body(imageBytes);
+        } catch (RuntimeException ex) {
+            return ResponseEntity.status(404).body(null);
+        }
     }
 
-    // 👨‍🌾 Get all products of logged-in Farmer
-    @PreAuthorize("hasRole('FARMER')")
-    @GetMapping("/my")
-    public List<Product> getMyProducts(Principal principal) {
-        String email = principal.getName();
-        User farmer = userRepository.findByEmail(email)
-                .orElseThrow(() -> new RuntimeException("Farmer not found"));
-        return productService.getProductsByFarmerId(farmer.getId());
-    }
-
-    // 🧠 Filter products by crop name and date (for admin or marketplace view)
     @PreAuthorize("hasAnyRole('ADMIN','RETAILER','DISTRIBUTOR')")
-    @GetMapping("/filter")
+    @GetMapping("/products/filter")
     public List<Product> filterProducts(
             @RequestParam(required = false) String cropName,
-            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate endDate
-    ) {
+            @RequestParam(required = false) @org.springframework.format.annotation.DateTimeFormat(iso = org.springframework.format.annotation.DateTimeFormat.ISO.DATE) LocalDate endDate) {
         return productService.filterProducts(cropName, endDate);
     }
 
-    // 🌿 Public view for QR verification
-    @GetMapping("/{id}/public")
+    @GetMapping("/products/{id}/public")
     public Map<String, Object> getPublicView(@PathVariable Long id) {
         return productService.getPublicView(id);
     }
 
-    // 🔒 Authorized detailed view for logged-in users
     @PreAuthorize("hasAnyRole('FARMER','ADMIN','DISTRIBUTOR','RETAILER')")
-    @GetMapping("/{id}/details")
+    @GetMapping("/products/{id}/details")
     public Map<String, Object> getAuthorizedView(@PathVariable Long id, Principal principal) {
         return productService.getAuthorizedView(id, principal != null ? principal.getName() : null);
+    }
+
+    @GetMapping("/products/by-uuid/{uuid}/public")
+    public ResponseEntity<?> getPublicByUuid(@PathVariable String uuid) {
+        return productRepository.findByPublicUuid(uuid)
+                .map(p -> ResponseEntity.ok(productService.getPublicView(p.getId())))
+                .orElseGet(() -> ResponseEntity.status(404).body(Map.of("error", "Product not found")));
+    }
+
+    @GetMapping("/verify/{uuid}")
+    public ResponseEntity<?> verifyByUuid(@PathVariable("uuid") String uuid, Principal principal) {
+        try {
+            Map<String, Object> data = productService.getPublicViewByUuid(uuid);
+            boolean canUpdate = false;
+            if (principal != null) {
+                User user = userRepository.findByEmail(principal.getName()).orElse(null);
+                if (user != null) {
+                    canUpdate = user.getRoles().stream().anyMatch(role ->
+                        "ROLE_DISTRIBUTOR".equals(role.getName()) || "ROLE_RETAILER".equals(role.getName()));
+                }
+            }
+            data.put("canUpdate", canUpdate);
+
+            boolean canGiveFeedback = false;
+            if (principal != null) {
+                User user = userRepository.findByEmail(principal.getName()).orElse(null);
+                if (user != null) {
+                    boolean isConsumer = user.getRoles().stream()
+                        .anyMatch(r -> "ROLE_CONSUMER".equals(r.getName()));
+                    if (isConsumer) {
+                        Long productId = null;
+                        if (data.containsKey("productId") && data.get("productId") instanceof Number) {
+                            productId = ((Number) data.get("productId")).longValue();
+                        } else {
+                            productId = productRepository.findByPublicUuid(uuid)
+                                .map(p -> p.getId())
+                                .orElse(null);
+                        }
+
+                        if (productId != null) {
+                            boolean already = feedbackRepository.findByProductIdAndConsumerId(productId, user.getId()).isPresent();
+                            canGiveFeedback = !already;
+                        }
+                    }
+                }
+            }
+            data.put("canGiveFeedback", canGiveFeedback);
+
+            return ResponseEntity.ok(data);
+        } catch (Exception e) {
+            return ResponseEntity.status(404).body(Map.of("error", "Product not found"));
+        }
+    }
+
+    @PostMapping("/verify/{uuid}/track")
+    @PreAuthorize("hasAnyRole('RETAILER','DISTRIBUTOR')")
+    public ResponseEntity<?> addTrackingByUuid(
+            @PathVariable("uuid") String uuid,
+            @RequestBody Map<String, Object> body,
+            Principal principal) {
+
+        String location = (String) body.get("location");
+        String note = Optional.ofNullable((String) body.get("note")).orElse("").trim();
+        Object toUserObj = body.get("toUserId");
+        Long toUserId = (toUserObj instanceof Number) ? ((Number) toUserObj).longValue() : null;
+
+        if (location == null || location.trim().isEmpty()) {
+            return ResponseEntity.badRequest().body(Map.of("error", "Location is required"));
+        }
+
+        User currentUser = userRepository.findByEmail(principal.getName())
+                .orElseThrow(() -> new RuntimeException("User not found"));
+
+        Product product = productRepository.findByPublicUuid(uuid)
+                .orElseThrow(() -> new RuntimeException("Product not found"));
+
+        Long productId = product.getId();
+        SupplyChainLog lastLog = supplyChainLogRepository
+                .findTopByProductIdOrderByTimestampDesc(productId)
+                .orElse(null);
+
+        if (currentUser.hasRole("ROLE_DISTRIBUTOR")) {
+
+            if (lastLog == null || (lastLog.getToUserId() == null && lastLog.getFromUserId() == null)) {
+                SupplyChainLog pickupLog = new SupplyChainLog();
+                pickupLog.setProductId(productId);
+                pickupLog.setFromUserId(null);
+                pickupLog.setToUserId(currentUser.getId());
+                pickupLog.setLocation(location);
+                pickupLog.setNotes(note.isBlank() ? "Distributor collected from farmer" : note);
+                pickupLog.setCreatedBy(currentUser.getEmail());
+                pickupLog.setConfirmed(true);
+                pickupLog.setTimestamp(LocalDateTime.now());
+
+                String prevHash = lastLog != null ? lastLog.getHash() : "";
+                pickupLog.setPrevHash(prevHash);
+                pickupLog.setHash(HashUtil.computeHash(pickupLog, prevHash));
+
+                supplyChainLogRepository.save(pickupLog);
+                return ResponseEntity.ok(Map.of("message", "You have successfully taken the product from the farmer"));
+            }
+
+            if (lastLog.getToUserId() != null && lastLog.getToUserId().equals(currentUser.getId()) && toUserId == null) {
+                SupplyChainLog trackingLog = new SupplyChainLog();
+                trackingLog.setProductId(productId);
+                trackingLog.setFromUserId(currentUser.getId());
+                trackingLog.setToUserId(currentUser.getId());
+                trackingLog.setLocation(location);
+                trackingLog.setNotes(note.isBlank() ? "Tracking update by distributor" : note);
+                trackingLog.setCreatedBy(currentUser.getEmail());
+                trackingLog.setConfirmed(true);
+                trackingLog.setTimestamp(LocalDateTime.now());
+                trackingLog.setPrevHash(lastLog.getHash());
+                trackingLog.setHash(HashUtil.computeHash(trackingLog, lastLog.getHash()));
+                supplyChainLogRepository.save(trackingLog);
+
+                return ResponseEntity.ok(Map.of("message", "Tracking updated"));
+            }
+
+            if (toUserId != null && lastLog.getToUserId() != null && lastLog.getToUserId().equals(currentUser.getId()) && lastLog.isConfirmed()) {
+                if (!userRepository.existsById(toUserId)) {
+                    return ResponseEntity.badRequest().body(Map.of("error", "Selected retailer does not exist"));
+                }
+
+                SupplyChainLog handover = new SupplyChainLog();
+                handover.setProductId(productId);
+                handover.setFromUserId(currentUser.getId());
+                handover.setToUserId(toUserId);
+                handover.setLocation(location);
+                handover.setNotes(note.isBlank() ? "Handed over to retailer – awaiting confirmation" : note);
+                handover.setCreatedBy(currentUser.getEmail());
+                handover.setConfirmed(false);
+                handover.setTimestamp(LocalDateTime.now());
+                handover.setPrevHash(lastLog.getHash());
+                handover.setHash(HashUtil.computeHash(handover, lastLog.getHash()));
+
+                supplyChainLogRepository.save(handover);
+
+                return ResponseEntity.ok(Map.of("message", "Product successfully handed over! Only the selected retailer will see it in Pending Receipts."));
+            }
+        }
+
+        if (currentUser.hasRole("ROLE_RETAILER")) {
+            if (lastLog == null || !lastLog.getToUserId().equals(currentUser.getId()) || lastLog.isConfirmed()) {
+                return ResponseEntity.badRequest().body(Map.of("error", "No product pending for you to confirm"));
+            }
+
+            SupplyChainLog confirmLog = new SupplyChainLog();
+            confirmLog.setProductId(productId);
+            confirmLog.setFromUserId(lastLog.getFromUserId());
+            confirmLog.setToUserId(currentUser.getId());
+            confirmLog.setLocation(location);
+            confirmLog.setNotes(note.isBlank() ? "Retailer confirmed receipt" : note);
+            confirmLog.setCreatedBy(currentUser.getEmail());
+            confirmLog.setConfirmed(true);
+            confirmLog.setConfirmedAt(LocalDateTime.now());
+            confirmLog.setConfirmedById(currentUser.getId());
+            confirmLog.setTimestamp(LocalDateTime.now());
+            confirmLog.setPrevHash(lastLog.getHash());
+            confirmLog.setHash(HashUtil.computeHash(confirmLog, lastLog.getHash()));
+
+            supplyChainLogRepository.save(confirmLog);
+
+            return ResponseEntity.ok(Map.of("message", "Receipt confirmed successfully! Chain is now complete."));
+        }
+
+        return ResponseEntity.badRequest().body(Map.of("error", "Invalid action"));
     }
 }
