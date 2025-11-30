@@ -12,11 +12,19 @@ import { AuthService } from '../../../services/auth.service';
 })
 export class AdminLayout {
 
-  // ADD THIS CONSTRUCTOR + METHOD
+  // Sidebar toggle state
+  sidebarOpen = false;
+
   constructor(private authService: AuthService) {}
 
+  // Toggle sidebar on mobile
+  toggleSidebar() {
+    this.sidebarOpen = !this.sidebarOpen;
+  }
+
+  // Get admin name (first name only)
   currentAdminName(): string {
     const name = this.authService.getName();
-    return name ? name.split(' ')[0] : 'Admin';   
-}
+    return name ? name.split(' ')[0] : 'Admin';
+  }
 }
