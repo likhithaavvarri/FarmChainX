@@ -70,7 +70,7 @@ public class ProductController {
                     .orElseThrow(() -> new RuntimeException("Farmer not found"));
 
             com.cloudinary.Cloudinary cloudinary = new com.cloudinary.Cloudinary(
-            		"cloudinary://576328924368997:w91CTYnN6GDpASZhjff1oyeKIwk@dui3x1lur"   //Please change the infos
+            		"cloudinary://221895168758648:7jGyRhS7dYRAlg_iIyGMmMsAA-Q@dwamqyqme"   //Please change the info
             );
             java.util.Map uploadResult = cloudinary.uploader().upload(
                 imageFile.getBytes(),
