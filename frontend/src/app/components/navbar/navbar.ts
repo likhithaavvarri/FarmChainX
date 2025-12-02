@@ -1,4 +1,5 @@
-import { Component, HostListener, inject } from '@angular/core';
+
+import { Component, HostListener, OnInit, ElementRef, inject } from '@angular/core';
 import { Router, RouterLink } from '@angular/router';
 import { CommonModule } from '@angular/common';
 import { LucideAngularModule } from 'lucide-angular';
@@ -13,6 +14,7 @@ import { AuthService } from '../../services/auth.service';
 export class Navbar {
   private router = inject(Router);
   private auth = inject(AuthService);
+  private host = inject(ElementRef);
 
   mobileMenuOpen = false;
   userMenuOpen = false;
@@ -24,6 +26,21 @@ export class Navbar {
   @HostListener('window:scroll')
   onScroll() {
     this.isScrolled = window.scrollY > 10;
+  }
+
+  // Close user menu when clicking outside the component
+  @HostListener('document:click', ['$event'])
+  onDocumentClick(event: Event) {
+    const target = event.target as HTMLElement;
+    if (!this.host.nativeElement.contains(target)) {
+      this.userMenuOpen = false;
+    }
+  }
+
+  ngOnInit(): void {
+    // Ensure menus are closed on init/refresh
+    this.userMenuOpen = false;
+    this.mobileMenuOpen = false;
   }
 
   get isLoggedIn() {

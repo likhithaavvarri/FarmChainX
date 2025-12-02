@@ -1,3 +1,4 @@
+
 import { Component, OnInit } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { CommonModule } from '@angular/common';
@@ -5,7 +6,7 @@ import { CommonModule } from '@angular/common';
 type PrimaryRole = 'ADMIN' | 'FARMER' | 'DISTRIBUTOR' | 'RETAILER' | 'CONSUMER' | 'USER';
 
 interface User {
-  id: number;
+  id: string;
   name: string;
   email: string;
   roles: string[];
@@ -17,7 +18,7 @@ interface User {
   standalone: true,
   imports: [CommonModule],
   templateUrl: './admin-users.html',
-  styleUrl: './admin-users.scss'
+  styleUrls: ['./admin-users.scss']
 })
 export class AdminUsers implements OnInit {
   users: User[] = [];
@@ -62,16 +63,16 @@ export class AdminUsers implements OnInit {
 
   roleClass(role: PrimaryRole): string {
     switch (role) {
-      case 'ADMIN': return 'bg-purple-500/30 text-purple-200';
-      case 'FARMER': return 'bg-emerald-500/30 text-emerald-200';
-      case 'DISTRIBUTOR': return 'bg-cyan-500/30 text-cyan-200';
-      case 'RETAILER': return 'bg-amber-500/30 text-amber-200';
-      case 'CONSUMER': return 'bg-slate-500/30 text-slate-200';
-      default: return 'bg-gray-500/30 text-gray-200';
+      case 'ADMIN': return 'bg-purple-100 text-purple-700';
+      case 'FARMER': return 'bg-emerald-100 text-emerald-700';
+      case 'DISTRIBUTOR': return 'bg-cyan-100 text-cyan-700';
+      case 'RETAILER': return 'bg-amber-100 text-amber-700';
+      case 'CONSUMER': return 'bg-slate-100 text-slate-700';
+      default: return 'bg-gray-100 text-gray-700';
     }
   }
 
-  promote(userId: number): void {
+  promote(userId: string): void {
     if (!confirm('Promote this user to Admin?')) return;
     this.http.post(`/api/admin/promote/${userId}`, {}).subscribe({
       next: () => {
